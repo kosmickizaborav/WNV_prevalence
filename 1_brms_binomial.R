@@ -1,16 +1,17 @@
 library(data.table)
-library(ape)
+#library(ape)
 library(brms)
 
-data_dir <- here::here("Data")
-model_dir <- file.path(data_dir, "Models")
+main_dir <- "/home/nbogdanovic/WNV_prevalence"
+data_dir <- file.path(main_dir, "Data_for_cluster")
+model_dir <- file.path(main_dir, "Models")
 dir.create(model_dir, showWarnings = F)
 
 # Seed stuff
 set.seed(202510)
 BAYES_SEED <- 202510
 
-# 0: Prepare data ---------------------------------------------------------
+# 0: Prepare data PC---------------------------------------------------------
 
 # # laptop
 # data_dir <- here::here("Data")
@@ -106,19 +107,29 @@ BAYES_SEED <- 202510
 
 
 # PHYLOGENETIC AUTOCORRELATION
-bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
-bird_tree <- ape::drop.tip(
-  bird_tree, 
-  bird_tree$tip.label[!bird_tree$tip.label %in% unique(wnv_dt$avilist_name)]
-  )
-# this way we generate covariance matrix that will be inputted in the model as:
-# gr(scientific_name_bt, cov = A) - we make sure that species are correlated
-# as specified by the covariance matrix A
-A <- vcv.phylo(bird_tree)
-saveRDS(A, file.path(cluster_dir, "1_bird_tree_A.rds"))
+# bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
+# bird_tree <- drop.tip(
+#   bird_tree, 
+#   bird_tree$tip.label[!bird_tree$tip.label %in% unique(wnv_dt$avilist_name)]
+#   )
+# # this way we generate covariance matrix that will be inputted in the model as:
+# # gr(scientific_name_bt, cov = A) - we make sure that species are correlated
+# # as specified by the covariance matrix A
+# A <- vcv.phylo(bird_tree)
+# saveRDS(A, file.path(cluster_dir, "1_bird_tree_A.rds"))
+
+
+
+# 0: Load data cluster -------------------------------------------------------
+
+A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
+
+wnv_dt <- fread(file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
 
 
 # 1: Intercept + random effects-------------------------------------------------
+
+setwd(model_dir)
 
 # List the random effects you want to test
 random_effects <- c(
