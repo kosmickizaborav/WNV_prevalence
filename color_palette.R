@@ -1,0 +1,78 @@
+
+# 1 - Add clade for color----------------------------------------------------
+
+clades_all <- list(
+  Paleognathae      = c("Struthioniformes","Rheiformes","Casuariiformes",
+                        "Apterygiformes","Tinamiformes"),
+  Galloanserae      = c("Galliformes","Anseriformes"),
+  Strisores         = c("Caprimulgiformes","Podargiformes","Nyctibiiformes",
+                        "Steatornithiformes","Apodiformes"),
+  Gruimorphae       = c("Gruiformes","Opisthocomiformes","Eurypygiformes"),
+  Columbaves        = c("Columbiformes","Pterocliformes","Mesitornithiformes",
+                        "Cuculiformes","Musophagiformes","Otidiformes"), 
+  Aequorlitornithes = c("Charadriiformes","Phoenicopteriformes","Podicipediformes",
+                        "Gaviiformes","Sphenisciformes","Procellariiformes",
+                        "Phaethontiformes","Ciconiiformes","Suliformes",
+                        "Pelecaniformes"),
+  Telluraves        = c("Accipitriformes","Cathartiformes","Strigiformes",
+                        "Coliiformes", "Leptosomiformes", "Trogoniformes",
+                        "Bucerotiformes","Coraciiformes","Piciformes",
+                        "Passeriformes", "Psittaciformes", "Falconiformes")
+)
+
+ord_col <- c(
+  # Paleognathae
+  "Struthioniformes"   = "#56021F",
+  "Rheiformes"         = "#7D1C4A", 
+  "Apterygiformes"     = "#D17D98", 
+  "Casuariiformes"     = "#C890A7", 
+  "Tinamiformes"       = "#FCD1D1",
+  # Galloanserae
+  "Galliformes"        = "#C70039", 
+  "Anseriformes"       = "#EF6262",
+  # Strisores
+  "Caprimulgiformes"   = "#6C5F5B", 
+  "Podargiformes"      = "#607274",
+  "Nyctibiiformes"     = "#E5E4E2", 
+  "Steatornithiformes" = "#B2A59B",
+  "Apodiformes"        = "#CEAB93",
+  # Gruimorphae
+  "Gruiformes"         = "#E6B15C", 
+  "Opisthocomiformes"  = "#8B5C2F", 
+  "Eurypygiformes"     = "#4B2E09", 
+  # Columbaves
+  "Columbiformes"      = "#FF8000", 
+  "Pterocliformes"     = "#FF9B45", 
+  "Mesitornithiformes" = "#FEBE8C", 
+  "Cuculiformes"       = "#FFB823", 
+  "Musophagiformes"    = "#FFE100FF", 
+  "Otidiformes"        = "#F9F07A",
+  # Aequorlitornithes
+  "Charadriiformes"    = "#1B1464", 
+  "Phoenicopteriformes"= "#702963", 
+  "Podicipediformes"   = "#F875AA", 
+  "Gaviiformes"        = "#F2C1D1",
+  "Sphenisciformes"    = "#CCCCFF", 
+  "Procellariiformes"  = "#4E2A84", 
+  "Phaethontiformes"   = "#AA98A9", 
+  "Ciconiiformes"      = "#9F4EAD",
+  "Suliformes"         = "#7B68EE", 
+  "Pelecaniformes"     = "#E04DB0", 
+  # Telluraves
+  "Accipitriformes"    = "#00C2FF",
+  "Cathartiformes"     = "#00FFD0",
+  "Strigiformes"       = "#004E7C",
+  "Coliiformes"        = "#006BFF",
+  "Leptosomiformes"    = "#6FE6FC",
+  "Trogoniformes"      = "#9EDF9C",
+  "Bucerotiformes"     = "#83c5be",
+  "Coraciiformes"      = "#8FA31E",
+  "Piciformes"         = "#005C31FF",
+  "Passeriformes"      = "#2a9d8f",
+  "Psittaciformes"     = "#A8FF00",   
+  "Falconiformes"      = "#a7c957"
+)
+
+
+
+
