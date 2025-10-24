@@ -2,7 +2,8 @@ library(data.table)
 library(ape)
 library(brms)
 
-laptop <- T
+laptop <- F
+random <- F
 
 main_dir <- "/home/nbogdanovic/WNV_prevalence"
 cluster_dir <- file.path(main_dir, "Data_for_cluster")
@@ -33,7 +34,7 @@ BAYES_SEED <- 202510
 # 
 # wnv_dt <- wnv_dt[
 #   , ":=" (
-#     avilist_name = gsub(" ", "_", avilist_name), 
+#     avilist_name = gsub(" ", "_", avilist_name),
 #     method = gsub(" ", "_", method)
 #   )]
 # 
@@ -99,9 +100,13 @@ BAYES_SEED <- 202510
 # wnv_dt[, ind_per_sp := sum(total_tested), by = avilist_name]
 # wnv_dt <- wnv_dt[ind_per_sp >= 20]
 # 
+# 
+# big_tests <- c("serological_ELISA", "molecular_detection", "serological_VNT")
+# wnv_dt[, method_cat := fifelse(!method %in% big_tests, "other", method)]
+# 
 # # save data
 # fwrite(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
-# 
+
 # #PHYLOGENETIC AUTOCORRELATION
 # bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
 # bird_tree <- drop.tip(
@@ -138,45 +143,45 @@ BAYES_SEED <- 202510
 
 
 # add_continents <- function(
-#     steps, crs = sf::st_crs(4326), align_start = T, 
+#     steps, crs = sf::st_crs(4326), align_start = T,
 #     coord_cols = NULL, scale = "medium"){
-#   
+#
 #   # overlay the map with start or the end point of the step (didn't check both
 #   # to preserve the country information in case we need it later)
 #   if(is.null(coord_cols)){
 #     coord_cols <- if(align_start) c("x1_", "y1_") else c("x2_", "y2_")
 #   }
-#   
+#
 #   steps <- steps[
 #     , geometry := sf::st_as_sf(
-#       .SD, coords = coord_cols, crs = crs), .SDcols = coord_cols] 
-#   
+#       .SD, coords = coord_cols, crs = crs), .SDcols = coord_cols]
+#
 #   # load or download the continent data with the right resolution
 #   conti <- tryCatch(
 #     rnaturalearth::ne_load(
-#       type = "geography_regions_polys",  scale = scale, category = "physical"), 
+#       type = "geography_regions_polys",  scale = scale, category = "physical"),
 #     error = function(e) {
 #       rnaturalearth::ne_download(
 #         type = "geography_regions_polys",  scale = scale, category = "physical")
 #     }
 #   )
-#   
+#
 #   # check the nearest geometry
 #   conti_id <- sf::st_nearest_feature(steps$geometry, conti)
-#   
+#
 #   # convert to datatable for merging
 #   conti_dt <- as.data.table(conti)[
 #     , .(continent = REGION, subregion = SUBREGION)]
 #   conti_dt <- conti_dt[conti_id]
-#   
+#
 #   # add columns to the original step data
 #   steps <- cbind(steps[, geometry := NULL], conti_dt)
-#   
+#
 #   return(steps)
-#   
+#
 # }
-# 
-# 
+#
+#
 # dist_locs <- add_continents(
 #   wnv_dt, coord_cols = c("long", "lat"), scale = "medium")
 
@@ -188,104 +193,212 @@ A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
 
 wnv_dt <- fread(file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
 
+setwd(model_dir)
 
 # 1: Intercept + random effects-------------------------------------------------
 
+if(random == T){
+  
+  # get the log warning files
+  logfile <- file.path(model_dir, "all_model_warnings.log")
+  logcon <- file(logfile, open = "wt")
+  
+  # List the random effects you want to test
+  random_effects <- c(
+    "(1 | gr(avilist_name,cov=A))",
+    "(1 | method_cat)",
+    "(1 | country:sampling_year)"
+  )
+
+  for(re in random_effects) {
+
+    var_id <- gsub("[^[:alnum:]]", "_", gsub("^\\(1 \\| |\\)$", "", re))
+
+    mname <- paste0("1_binomial_r_", var_id, ".rds")
+
+    # Dynamically build the formula string
+    formula_str <- paste0("positive | trials(total_tested) ~ 1 + ", re)
+
+    if(re != "(1 | gr(avilist_name,cov=A))"){
+      formula_str <- paste0(
+        "positive | trials(total_tested) ~ 1 + (1 | gr(avilist_name,cov=A)) + ",
+        re)
+    }
+
+    # convert to brms formula object
+    f <- bf(formula(formula_str), family = binomial())
+
+    # my original priors
+    # p <- c(
+    #   prior(normal(0, 1.5), class = Intercept),
+    #   prior(exponential(1), class = sd)
+    # )
+
+    # uninformative priors, picked from the comparative_analyais_brm_clean
+    p = c(
+      prior(student_t(3, 0, 10), "Intercept"),
+      prior(student_t(3, 0, 10), "sd")
+    )
+
+    # p <- get_prior(f, data = wnv_dt, data2 = list(A = A))
+
+    # Fit the model only if not already saved
+    if (!file.exists(mname)) {
+      withCallingHandlers({
+        m <- brm(
+          data = wnv_dt,
+          data2 = list(A = A),
+          formula = f,
+          prior = p,
+          iter = 6000,
+          warmup = 2000,
+          cores = 4,
+          chains = 4,
+          seed = BAYES_SEED,
+          sample_prior = TRUE,
+          file = mname
+        )
+      }, warning = function(w) {
+        writeLines(
+          paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
+          logcon
+        )
+        invokeRestart("muffleWarning")
+      })
+    }
+
+    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+
+    # TRY
+    mname <- paste0("1_zero-negbinomial_r_", var_id, ".rds")
+
+    # Dynamically build the formula string
+    formula_str <- paste0("positive ~ 1 + total_tested + ", re)
+
+    if(re != "(1 | gr(avilist_name,cov=A))"){
+      formula_str <- paste0(
+        "positive ~ 1 + total_tested + (1 | gr(avilist_name,cov=A)) + ", re)
+    }
+
+    # convert to brms formula object
+    f <- bf(formula(formula_str), family = zero_inflated_negbinomial())
+
+    # I ran the script with this called prior instead of p, but lickly the 
+    # shape and zi parameters are the same in default priors so shouldn't 
+    # matter
+    p <- c(
+      prior(student_t(3, 0, 10), class = "Intercept"),
+      prior(student_t(3, 0, 10), class = "sd"),
+      prior(gamma(0.01, 0.01), class = "shape"),      # for negative binomial shape
+      prior(beta(1,1), class="zi")                    # only for zero-inflated
+    )
+
+    # Fit the model only if not already saved
+    if (!file.exists(mname)) {
+      withCallingHandlers({
+        m <- brm(
+          data = wnv_dt,
+          data2 = list(A = A),
+          formula = f,
+          prior = p,
+          iter = 6000,
+          warmup = 2000,
+          cores = 4,
+          chains = 4,
+          seed = BAYES_SEED,
+          sample_prior = TRUE,
+          file = mname
+        )
+      }, warning = function(w) {
+        writeLines(
+          paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
+          logcon
+        )
+        invokeRestart("muffleWarning")
+      })
+    }
+
+    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+
+  }
+
+
+  close(logcon) # Close log file connection
+
+  
+}
+
+
+# 2: Intercept + fixed effects-------------------------------------------------
+
 setwd(model_dir)
 
-# Create a single log file for all warnings
-logfile <- file.path(model_dir, "all_model_warnings.log")
+# get the log warning files
+logfile <- file.path(model_dir, "all_model_fixed_warnings.log")
 logcon <- file(logfile, open = "wt")
 
 
-# List the random effects you want to test
-random_effects <- c(
-  "(1 | gr(avilist_name,cov=A))",
-  "(1 | country)",
-  "(1 | sampling_year)",
-  "(1 | method)", 
-  "(1 | country:sampling_year)"
+# selected traits
+traits_select <- c(
+  "birdlife_name", "mass_log", "tarsus_log", "longevity_log",
+  "clutch_max_log", "log_human_population_density", "abundance_log",
+  "habitat", "freshwater", "migration", "sociality",
+  "primary_lifestyle", "nest_placement", "trophic_niche"
 )
 
-for(re in random_effects) {
-  
-  var_id <- gsub("[^[:alnum:]]", "_", gsub("^\\(1 \\| |\\)$", "", re))
+body_size <- c("mass_log", "tarsus_log", "longevity_log")
+habitat_vars <- c(
+  "habitat", "freshwater", "primary_lifestyle", "trophic_niche")
 
-  mname <- paste0("1_binomial_r_", var_id, ".rds")
+other_vars <- setdiff(
+  traits_select, c(body_size, habitat_vars, "birdlife_name"))
+
+# Generate all possible subsets of other_vars (including empty subset)
+other_combos <- unlist(lapply(0:length(other_vars), function(k) {
+  combn(other_vars, k, simplify = FALSE)
+}), recursive = FALSE)
+
+# Build formulas: each must have one body_size, one habitat_var, plus any other_vars
+formulas <- c()
+for (bs in body_size) {
+  for (hv in habitat_vars) {
+    for (ov in other_combos) {
+      model_vars <- c(bs, hv, ov)
+      formulas <- paste(model_vars, collapse = " + ")
+    }
+  }
+}
+
+length(formulas)
+formulas_dt <- data.table(formula = formulas)[, fname := paste0("f", 1:.N)]
+
+fwrite(formulas_dt, "1_model_formulas_fixed_effects.csv")
+
+
+re <- "(1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
+
+# TRY
+for(i in 1:nrow(formulas_dt)){
+  
+  fn <- formulas_dt[i, fname]
+  fp <- formulas_dt[i, formula]
+  
+  mname <- paste0("1_zero-negbinomial_f_", fn, ".rds")
   
   # Dynamically build the formula string
-  formula_str <- paste0("positive | trials(total_tested) ~ 1 + ", re)
-  
-  if(re != "(1 | gr(avilist_name,cov=A))"){
-    formula_str <- paste0(
-      "positive | trials(total_tested) ~ 1 + (1 | gr(avilist_name,cov=A)) + ",
-      re)
-  }
-  
-  # convert to brms formula object
-  f <- bf(formula(formula_str), family = binomial())
-  
-  # my original priors
-  # p <- c(
-  #   prior(normal(0, 1.5), class = Intercept),
-  #   prior(exponential(1), class = sd)
-  # )
-  
-  # uninformative priors, picked from the comparative_analyais_brm_clean
-  p = c(
-    prior(student_t(3, 0, 10), "Intercept"),
-    prior(student_t(3, 0, 10), "sd")
-  )
-  
-  # p <- get_prior(f, data = wnv_dt, data2 = list(A = A))
-  
-  
-  # Fit the model only if not already saved
-  if (!file.exists(mname)) {
-    withCallingHandlers({
-      m <- brm(
-        data = wnv_dt,
-        data2 = list(A = A),
-        formula = f,
-        prior = p,
-        iter = 6000,
-        warmup = 2000,
-        cores = 4,
-        chains = 4,
-        seed = BAYES_SEED,
-        sample_prior = TRUE,
-        file = mname
-      )
-    }, warning = function(w) {
-      writeLines(
-        paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
-        logcon
-      )
-      invokeRestart("muffleWarning")
-    })
-  }
-  
-  writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
-  
-  # TRY 
-  mname <- paste0("1_zero-negbinomial_r_", var_id, ".rds")
-  
-  # Dynamically build the formula string
-  formula_str <- paste0("positive ~ 1 + total_tested + ", re)
-  
-  if(re != "(1 | gr(avilist_name,cov=A))"){
-    formula_str <- paste0(
-      "positive ~ 1 + total_tested + (1 | gr(avilist_name,cov=A)) + ", re)
-  }
+  formula_str <- paste0("positive ~ 1 + total_tested + ", fp, " + ", re)
   
   # convert to brms formula object
   f <- bf(formula(formula_str), family = zero_inflated_negbinomial())
   
-  prior = c(
+  p <- c(
     prior(student_t(3, 0, 10), class = "Intercept"),
     prior(student_t(3, 0, 10), class = "sd"),
-    prior(gamma(0.01, 0.01), class = "shape"),      # for negative binomial shape
-    prior(beta(1,1), class="zi")                    # only for zero-inflated
+    # for negative binomial shape
+    prior(gamma(0.01, 0.01), class = "shape"),
+    prior(beta(1,1), class="zi")
+    # originally prior here was not specified so I just left it like it is
+    # prior(normal(0, 2), class = "b")
   )
   
   # Fit the model only if not already saved
@@ -321,11 +434,26 @@ for(re in random_effects) {
 close(logcon) # Close log file connection
 
   
+  
 
 
 
 
+# check models ------------------------------------------------------------
 
+# models_dir <- here::here("Models_first_trial")
+# 
+# 
+# mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
+# all_models <- lapply(mnames, readRDS)
+# 
+# 
+# summarym <- lapply(all_models, summary)
+# loom <- lapply(all_models, loo)
+# 
+# loo_compare(loom)
+# 
+# summary(m)
  
 # # variables ---------------------------------------------------------------
 # 
