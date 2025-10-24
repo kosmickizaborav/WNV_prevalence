@@ -411,7 +411,7 @@ for(i in 1:nrow(formulas_dt)){
         prior = p,
         iter = 6000,
         warmup = 2000,
-        cores = 4,
+        cores = 8,
         chains = 4,
         seed = BAYES_SEED,
         sample_prior = TRUE,
