@@ -360,11 +360,13 @@ other_combos <- unlist(lapply(0:length(other_vars), function(k) {
 
 # Build formulas: each must have one body_size, one habitat_var, plus any other_vars
 formulas <- c()
+i <- 1
 for (bs in body_size) {
   for (hv in habitat_vars) {
     for (ov in other_combos) {
       model_vars <- c(bs, hv, ov)
-      formulas <- paste(model_vars, collapse = " + ")
+      formulas[i] <- paste(model_vars, collapse = " + ")
+      i <- i + 1
     }
   }
 }
