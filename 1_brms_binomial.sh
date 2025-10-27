@@ -12,7 +12,7 @@ module load R-bundle-CRAN
 # git pull
 
 # Sending the job
-R CMD BATCH --vanilla 1_brms_binomial.R 1_brms_binomial_negbin.Rout
+R CMD BATCH --vanilla 1_brms_binomial.R /Models/1_brms_binomial_distributions.Rout
 
 # Commit and push the files
 # git add --all
