@@ -283,7 +283,7 @@ if(random == T){
     mname <- paste0("1_zero-binomial_r_", var_id, ".rds")
 
     # Dynamically build the formula string
-    formula_str <- paste0("positive ~ 1 + total_tested + ", re)
+    formula_str <- paste0("positive | trials(total_tested) ~ 1 + ", re)
 
     if(re != "(1 | gr(avilist_name,cov=A))"){
       formula_str <- paste0(
