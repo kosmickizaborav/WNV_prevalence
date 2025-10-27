@@ -12,7 +12,7 @@ module load R-bundle-CRAN
 # git pull
 
 # Sending the job
-R CMD BATCH --vanilla 1_brms_binomial.R /Models/1_brms_binomial_distributions.Rout
+R CMD BATCH --vanilla 1_brms_binomial.R 1_brms_binomial_distributions.Rout
 
 # Commit and push the files
 # git add --all
@@ -22,6 +22,6 @@ R CMD BATCH --vanilla 1_brms_binomial.R /Models/1_brms_binomial_distributions.Ro
 
 
 # run using:
-# sbatch -p ceab --ntasks=8--mem=6=32G --mail-type=BEGIN,END,FAIL --mail-user=nina.bogdanovic@ceab.csic.es 1_brms_binomial_fixed.sh
+# sbatch -p ceab --ntasks=8--mem=6=32G --mail-type=BEGIN,END,FAIL --mail-user=nina.bogdanovic@ceab.csic.es 1_brms_binomial.sh
 
 
