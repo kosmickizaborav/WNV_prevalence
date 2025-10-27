@@ -22,6 +22,6 @@ R CMD BATCH --vanilla 1_brms_binomial.R 1_brms_binomial_fixed.Rout
 
 
 # run using:
-# sbatch -p ceab --ntasks=8--mem=6=32G --mail-type=BEGIN,END,FAIL --mail-#user=nina.bogdanovic@ceab.csic.es 1_brms_binomial_fixed.sh
+# sbatch -p ceab --ntasks=8--mem=6=32G --mail-type=BEGIN,END,FAIL --mail-user=nina.bogdanovic@ceab.csic.es 1_brms_binomial_fixed.sh
 
 

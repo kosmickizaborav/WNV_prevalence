@@ -2,18 +2,16 @@ library(data.table)
 library(ape)
 library(brms)
 
-laptop <- F
-random <- F
+random <- T
 
-main_dir <- "/home/nbogdanovic/WNV_prevalence"
-cluster_dir <- file.path(main_dir, "Data_for_cluster")
-model_dir <- file.path(main_dir, "Models")
+# here package should read it automatically from R project so no need to specify
+# the base directory
+#main_dir <- "/home/nbogdanovic/WNV_prevalence"
+# cluster_dir <- file.path(main_dir, "Data_for_cluster")
+# model_dir <- file.path(main_dir, "Models")
 
-
-if(laptop == T){
-  cluster_dir <- here::here("Data_for_cluster")
-  model_dir <- here::here("Models")
-}
+cluster_dir <- here::here("Data_for_cluster")
+model_dir <- here::here("Models")
 
 dir.create(model_dir, showWarnings = F)
 
@@ -39,10 +37,11 @@ BAYES_SEED <- 202510
 #   )]
 # 
 # # selected traits
+# # removed "habitat_TP2019", 
 # traits_select <- c(
 #   "birdlife_name", "mass_log", "tarsus_log", "hwi_log", "longevity_log",
 #   "clutch_max_log", "log_human_population_density", "abundance_log",
-#   "habitat", "habitat_TP2019", "freshwater", "migration", "sociality",
+#   "habitat", "freshwater", "migration", "sociality",
 #   "primary_lifestyle", "nest_placement", "trophic_niche", "altitude_cat"
 # )
 # 
@@ -55,37 +54,37 @@ BAYES_SEED <- 202510
 #     hwi_log = scale(log(hand_wing_index)),
 #     longevity_log = scale(log(maximum_longevity)),
 #     clutch_max_log = scale(log(clutch_max)),
-#     abundance_log = scale(log10(abundance_estimate + 1)),
+#     abundance_log = scale(log(abundance_estimate + 1)),
 #     log_human_population_density = scale(log_human_population_density),
 #     migration = factor(
 #       fifelse(migration == "sedentary", "sedentary", "migratory")),
 #     nest_placement = factor(nest_placement),
-#     habitat = factor(fcase(
+#     habitat = fcase(
 #       habitat == "Human Modified", "humanModified",
 #       habitat %in% c("Forest", "Woodland", "Shrubland", "Grassland"), "greenLandscape",
 #       habitat %in% c("Wetland", "Riverine", "Coastal"), "waterLandscape",
 #       habitat %in% c("Desert", "Rock"), "rockyLandscape",
 #       habitat == "Marine", "marineLandscape"
-#     )),
-#     sociality = factor(fcase(
+#     ),
+#     freshwater = fifelse(freshwater == 1, "freshwater", "other"), 
+#     sociality = fcase(
 #       colonial == 1 | social == 1, "social",
-#       default = "nonSocial"
-#     )),
-#     primary_lifestyle = factor(fcase(
+#       default = "nonSocial"),
+#     primary_lifestyle = fcase(
 #       primary_lifestyle %in% c("Aerial", "Insessorial"), "air",
 #       primary_lifestyle == "Aquatic", "water",
 #       default = "other"
-#     )),
-#     trophic_niche = factor(fcase(
+#     ),
+#     trophic_niche = fcase(
 #       trophic_niche %in% c("Scavenger", "Vertivore"), "carnivore",
 #       trophic_niche %in% c("Aquatic predator",  "Herbivore aquatic"), "aquaticFeeder",
 #       trophic_niche %in% c("Frugivore", "Granivore", "Nectarivore"), "cropFeeder",
-#       default = "terrestrialFeeder")),
-#     altitude_cat = factor(fcase(
+#       default = "terrestrialFeeder"),
+#     altitude_cat = fcase(
 #       minimum_altitude < 500, "lowland",
 #       minimum_altitude >= 500 & minimum_altitude < 1500, "midland",
 #       minimum_altitude >= 1500, "highland"
-#     ))
+#     )
 #   )][, ..traits_select]
 # 
 # wnv_dt <- merge(wnv_dt, traits_dt, by = "birdlife_name")
@@ -94,7 +93,7 @@ BAYES_SEED <- 202510
 # # keep only the data that is complete
 # wnv_dt[
 #   , data_complete := apply(.SD, 1, function(row) all(!is.na(row) & row != ""))]
-# wnv_dt <- wnv_dt[data_complete == T]
+# wnv_dt <- wnv_dt[data_complete == T][, data_complete := NULL]
 # 
 # # and minimum 20 tested individuals per species
 # wnv_dt[, ind_per_sp := sum(total_tested), by = avilist_name]
@@ -104,9 +103,20 @@ BAYES_SEED <- 202510
 # big_tests <- c("serological_ELISA", "molecular_detection", "serological_VNT")
 # wnv_dt[, method_cat := fifelse(!method %in% big_tests, "other", method)]
 # 
+# wnv_dt[, ':=' (
+#   freshwater = relevel(factor(freshwater), ref = "other"), 
+#   migration = relevel(factor(migration), ref = "sedentary"), 
+#   primary_lifestyle = relevel(factor(primary_lifestyle), ref = "other"), 
+#   trophic_niche = relevel(factor(trophic_niche), ref = "terrestrialFeeder"), 
+#   altitude_cat = relevel(factor(altitude_cat), ref = "lowland"), 
+#   habitat = relevel(factor(habitat), ref = "greenLandscape"), 
+#   sociality = relevel(factor(sociality), ref = "nonSocial")
+# )]
+# 
+# 
 # # save data
 # fwrite(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
-
+# 
 # #PHYLOGENETIC AUTOCORRELATION
 # bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
 # bird_tree <- drop.tip(
@@ -214,84 +224,83 @@ if(random == T){
 
     var_id <- gsub("[^[:alnum:]]", "_", gsub("^\\(1 \\| |\\)$", "", re))
 
-    mname <- paste0("1_binomial_r_", var_id, ".rds")
-
-    # Dynamically build the formula string
-    formula_str <- paste0("positive | trials(total_tested) ~ 1 + ", re)
-
-    if(re != "(1 | gr(avilist_name,cov=A))"){
-      formula_str <- paste0(
-        "positive | trials(total_tested) ~ 1 + (1 | gr(avilist_name,cov=A)) + ",
-        re)
-    }
-
-    # convert to brms formula object
-    f <- bf(formula(formula_str), family = binomial())
-
-    # my original priors
-    # p <- c(
-    #   prior(normal(0, 1.5), class = Intercept),
-    #   prior(exponential(1), class = sd)
+    # mname <- paste0("1_binomial_r_", var_id, ".rds")
+    # 
+    # # Dynamically build the formula string
+    # formula_str <- paste0("positive | trials(total_tested) ~ 1 + ", re)
+    # 
+    # if(re != "(1 | gr(avilist_name,cov=A))"){
+    #   formula_str <- paste0(
+    #     "positive | trials(total_tested) ~ 1 + (1 | gr(avilist_name,cov=A)) + ",
+    #     re)
+    # }
+    # 
+    # # convert to brms formula object
+    # f <- bf(formula(formula_str), family = binomial())
+    # 
+    # # my original priors
+    # # p <- c(
+    # #   prior(normal(0, 1.5), class = Intercept),
+    # #   prior(exponential(1), class = sd)
+    # # )
+    # 
+    # # uninformative priors, picked from the comparative_analyais_brm_clean
+    # p = c(
+    #   prior(student_t(3, 0, 10), "Intercept"),
+    #   prior(student_t(3, 0, 10), "sd")
     # )
-
-    # uninformative priors, picked from the comparative_analyais_brm_clean
-    p = c(
-      prior(student_t(3, 0, 10), "Intercept"),
-      prior(student_t(3, 0, 10), "sd")
-    )
-
-    # p <- get_prior(f, data = wnv_dt, data2 = list(A = A))
-
-    # Fit the model only if not already saved
-    if (!file.exists(mname)) {
-      withCallingHandlers({
-        m <- brm(
-          data = wnv_dt,
-          data2 = list(A = A),
-          formula = f,
-          prior = p,
-          iter = 6000,
-          warmup = 2000,
-          cores = 4,
-          chains = 4,
-          seed = BAYES_SEED,
-          sample_prior = TRUE,
-          file = mname
-        )
-      }, warning = function(w) {
-        writeLines(
-          paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
-          logcon
-        )
-        invokeRestart("muffleWarning")
-      })
-    }
-
-    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+    # 
+    # # p <- get_prior(f, data = wnv_dt, data2 = list(A = A))
+    # 
+    # # Fit the model only if not already saved
+    # if (!file.exists(mname)) {
+    #   withCallingHandlers({
+    #     m <- brm(
+    #       data = wnv_dt,
+    #       data2 = list(A = A),
+    #       formula = f,
+    #       prior = p,
+    #       iter = 6000,
+    #       warmup = 2000,
+    #       cores = 4,
+    #       chains = 4,
+    #       seed = BAYES_SEED,
+    #       sample_prior = TRUE,
+    #       file = mname
+    #     )
+    #   }, warning = function(w) {
+    #     writeLines(
+    #       paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
+    #       logcon
+    #     )
+    #     invokeRestart("muffleWarning")
+    #   })
+    # }
+    # 
+    # writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
 
     # TRY
-    mname <- paste0("1_zero-negbinomial_r_", var_id, ".rds")
+    mname <- paste0("1_zero-binomial_r_", var_id, ".rds")
 
     # Dynamically build the formula string
     formula_str <- paste0("positive ~ 1 + total_tested + ", re)
 
     if(re != "(1 | gr(avilist_name,cov=A))"){
       formula_str <- paste0(
-        "positive ~ 1 + total_tested + (1 | gr(avilist_name,cov=A)) + ", re)
+        "positive | trials(total_tested) ~ 1 + (1 | gr(avilist_name,cov=A)) + ", re)
     }
 
     # convert to brms formula object
-    f <- bf(formula(formula_str), family = zero_inflated_negbinomial())
+    f <- bf(formula(formula_str), family = zero_inflated_binomial())
 
     # I ran the script with this called prior instead of p, but lickly the 
     # shape and zi parameters are the same in default priors so shouldn't 
     # matter
-    p <- c(
-      prior(student_t(3, 0, 10), class = "Intercept"),
-      prior(student_t(3, 0, 10), class = "sd"),
-      prior(gamma(0.01, 0.01), class = "shape"),      # for negative binomial shape
-      prior(beta(1,1), class="zi")                    # only for zero-inflated
-    )
+    # p <- c(
+    #   prior(student_t(3, 0, 10), class = "Intercept"),
+    #   prior(student_t(3, 0, 10), class = "sd"),
+    #   prior(beta(1,1), class="zi")                    # only for zero-inflated
+    # )
 
     # Fit the model only if not already saved
     if (!file.exists(mname)) {
@@ -300,7 +309,6 @@ if(random == T){
           data = wnv_dt,
           data2 = list(A = A),
           formula = f,
-          prior = p,
           iter = 6000,
           warmup = 2000,
           cores = 4,
@@ -331,109 +339,109 @@ if(random == T){
 
 # 2: Intercept + fixed effects-------------------------------------------------
 
-setwd(model_dir)
-
-# get the log warning files
-logfile <- file.path(model_dir, "all_model_fixed_warnings.log")
-logcon <- file(logfile, open = "wt")
-
-
-# selected traits
-traits_select <- c(
-  "birdlife_name", "mass_log", "tarsus_log", "longevity_log",
-  "clutch_max_log", "log_human_population_density", "abundance_log",
-  "habitat", "freshwater", "migration", "sociality",
-  "primary_lifestyle", "nest_placement", "trophic_niche"
-)
-
-body_size <- c("mass_log", "tarsus_log", "longevity_log")
-habitat_vars <- c(
-  "habitat", "freshwater", "primary_lifestyle", "trophic_niche")
-
-other_vars <- setdiff(
-  traits_select, c(body_size, habitat_vars, "birdlife_name"))
-
-# Generate all possible subsets of other_vars (including empty subset)
-other_combos <- unlist(lapply(0:length(other_vars), function(k) {
-  combn(other_vars, k, simplify = FALSE)
-}), recursive = FALSE)
-
-# Build formulas: each must have one body_size, one habitat_var, plus any other_vars
-formulas <- c()
-i <- 1
-for (bs in body_size) {
-  for (hv in habitat_vars) {
-    for (ov in other_combos) {
-      model_vars <- c(bs, hv, ov)
-      formulas[i] <- paste(model_vars, collapse = " + ")
-      i <- i + 1
-    }
-  }
-}
-
-length(formulas)
-formulas_dt <- data.table(formula = formulas)[, fname := paste0("f", 1:.N)]
-
-fwrite(formulas_dt, "1_model_formulas_fixed_effects.csv")
-
-
-re <- "(1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
-
-# TRY
-for(i in 1:nrow(formulas_dt)){
-  
-  fn <- formulas_dt[i, fname]
-  fp <- formulas_dt[i, formula]
-  
-  mname <- paste0("1_zero-negbinomial_f_", fn, ".rds")
-  
-  # Dynamically build the formula string
-  formula_str <- paste0("positive ~ 1 + total_tested + ", fp, " + ", re)
-  
-  # convert to brms formula object
-  f <- bf(formula(formula_str), family = zero_inflated_negbinomial())
-  
-  p <- c(
-    prior(student_t(3, 0, 10), class = "Intercept"),
-    prior(student_t(3, 0, 10), class = "sd"),
-    # for negative binomial shape
-    prior(gamma(0.01, 0.01), class = "shape"),
-    prior(beta(1,1), class="zi")
-    # originally prior here was not specified so I just left it like it is
-    # prior(normal(0, 2), class = "b")
-  )
-  
-  # Fit the model only if not already saved
-  if (!file.exists(mname)) {
-    withCallingHandlers({
-      m <- brm(
-        data = wnv_dt,
-        data2 = list(A = A),
-        formula = f,
-        prior = p,
-        iter = 6000,
-        warmup = 2000,
-        cores = 8,
-        chains = 4,
-        seed = BAYES_SEED,
-        sample_prior = TRUE,
-        file = mname
-      )
-    }, warning = function(w) {
-      writeLines(
-        paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
-        logcon
-      )
-      invokeRestart("muffleWarning")
-    })
-  }
-  
-  writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
-  
-}
-
-
-close(logcon) # Close log file connection
+# setwd(model_dir)
+# 
+# # get the log warning files
+# logfile <- file.path(model_dir, "all_model_fixed_warnings.log")
+# logcon <- file(logfile, open = "wt")
+# 
+# 
+# # selected traits
+# traits_select <- c(
+#   "birdlife_name", "mass_log", "tarsus_log", "longevity_log",
+#   "clutch_max_log", "log_human_population_density", "abundance_log",
+#   "habitat", "freshwater", "migration", "sociality",
+#   "primary_lifestyle", "nest_placement", "trophic_niche"
+# )
+# 
+# body_size <- c("mass_log", "tarsus_log", "longevity_log")
+# habitat_vars <- c(
+#   "habitat", "freshwater", "primary_lifestyle", "trophic_niche")
+# 
+# other_vars <- setdiff(
+#   traits_select, c(body_size, habitat_vars, "birdlife_name"))
+# 
+# # Generate all possible subsets of other_vars (including empty subset)
+# other_combos <- unlist(lapply(0:length(other_vars), function(k) {
+#   combn(other_vars, k, simplify = FALSE)
+# }), recursive = FALSE)
+# 
+# # Build formulas: each must have one body_size, one habitat_var, plus any other_vars
+# formulas <- c()
+# i <- 1
+# for (bs in body_size) {
+#   for (hv in habitat_vars) {
+#     for (ov in other_combos) {
+#       model_vars <- c(bs, hv, ov)
+#       formulas[i] <- paste(model_vars, collapse = " + ")
+#       i <- i + 1
+#     }
+#   }
+# }
+# 
+# length(formulas)
+# formulas_dt <- data.table(formula = formulas)[, fname := paste0("f", 1:.N)]
+# 
+# fwrite(formulas_dt, "1_model_formulas_fixed_effects.csv")
+# 
+# 
+# re <- "(1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
+# 
+# # TRY
+# for(i in 1:nrow(formulas_dt)){
+#   
+#   fn <- formulas_dt[i, fname]
+#   fp <- formulas_dt[i, formula]
+#   
+#   mname <- paste0("1_zero-binomial_f_", fn, ".rds")
+#   
+#   # Dynamically build the formula string
+#   formula_str <- paste0("positive ~ 1 + total_tested + ", fp, " + ", re)
+#   
+#   # convert to brms formula object
+#   f <- bf(formula(formula_str), family = zero_inflated_binomial())
+#   
+#   p <- c(
+#     prior(student_t(3, 0, 10), class = "Intercept"),
+#     prior(student_t(3, 0, 10), class = "sd"),
+#     # for negative binomial shape
+#     prior(gamma(0.01, 0.01), class = "shape"),
+#     prior(beta(1,1), class="zi")
+#     # originally prior here was not specified so I just left it like it is
+#     # prior(normal(0, 2), class = "b")
+#   )
+#   
+#   # Fit the model only if not already saved
+#   if (!file.exists(mname)) {
+#     withCallingHandlers({
+#       m <- brm(
+#         data = wnv_dt,
+#         data2 = list(A = A),
+#         formula = f,
+#         prior = p,
+#         iter = 6000,
+#         warmup = 2000,
+#         cores = 8,
+#         chains = 4,
+#         seed = BAYES_SEED,
+#         sample_prior = TRUE,
+#         file = mname
+#       )
+#     }, warning = function(w) {
+#       writeLines(
+#         paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
+#         logcon
+#       )
+#       invokeRestart("muffleWarning")
+#     })
+#   }
+#   
+#   writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+#   
+# }
+# 
+# 
+# close(logcon) # Close log file connection
 
   
   
@@ -443,19 +451,20 @@ close(logcon) # Close log file connection
 
 # check models ------------------------------------------------------------
 
-# models_dir <- here::here("Models_first_trial")
-# 
-# 
-# mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
-# all_models <- lapply(mnames, readRDS)
-# 
-# 
-# summarym <- lapply(all_models, summary)
-# loom <- lapply(all_models, loo)
-# 
-# loo_compare(loom)
-# 
-# summary(m)
+models_dir <- here::here("Models_cluster")
+
+
+mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
+mnames <- grep("f_f1.rds", mnames, invert = T, value = T)
+all_models <- lapply(mnames, readRDS)
+
+
+summarym <- lapply(all_models, summary)
+loom <- lapply(all_models, loo)
+
+loo_compare(loom)
+
+summary(m)
  
 # # variables ---------------------------------------------------------------
 # 
