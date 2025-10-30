@@ -3,6 +3,4 @@
 .RData
 .Ruserdata
 /Data/
-/Models_first_trial
-/Models
-/Models_cluster
+/Models*

@@ -115,7 +115,7 @@ if(prepare_data == T){
   )]
   
   # save data
-  fwrite(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
+  saveRDS(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
   
   #PHYLOGENETIC AUTOCORRELATION
   bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
@@ -202,7 +202,9 @@ if(prepare_data == T){
 
 A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
 
-wnv_dt <- fread(file.path(cluster_dir, "1_WNV_prevalence_data_model.csv"))
+wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
+
+wnv_dt_passer <- wnv_dt[avilist_order == "Passeriformes"]
 
 setwd(model_dir)
 
@@ -217,12 +219,13 @@ setwd(model_dir)
 #              hist.col = "#00AFBB",
 #              density = TRUE)
 
+
 full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
 
 
 # get the log warning files
 logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
-logcon <- file(logfile, open = "wt")
+logcon <- file(logfile, open = "at")
 
 distributions <- list(
   binom = binomial(), 
@@ -235,12 +238,12 @@ for(dn in names(distributions)){
 
     # TRY
     mname <- paste0("1_", dn, "_full_model.rds")
-    
-    # convert to brms formula object
-    f <- bf(formula(full_f), family = distributions[[dn]])
 
     # Fit the model only if not already saved
     if (!file.exists(mname)) {
+      
+      # convert to brms formula object
+      f <- bf(formula(full_f), family = distributions[[dn]])
       
       withCallingHandlers({
         m <- brm(
@@ -272,3 +275,137 @@ for(dn in names(distributions)){
 close(logcon) # Close log file connection
 
   
+
+
+# check models ------------------------------------------------------------
+
+# models_dir <- here::here("Models")
+# 
+# 
+# mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
+# all_models <- lapply(mnames, readRDS)
+# 
+# 
+# summarym <- lapply(all_models, summary)
+# 
+# # Warning messages:
+# #   1: There were 7 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# # 2: There were 13 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# # 3: There were 6 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# 
+# loom <- lapply(all_models[c(2, 3, 4)], loo)
+# 
+# loo_compare(loom)
+# 
+# summary(m)
+
+
+
+
+# # Frequentist -------------------------------------------------------------
+# 
+# full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
+# 
+# 
+# m1 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year) + (1 | avilist_name),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# 
+# 
+# m2 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# m3 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ tarsus_log + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# m4 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# m5 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + migration + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# m6 <- glmmTMB(
+#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater +  sociality + nest_placement + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+#   data = wnv_dt,
+#   family = binomial(),
+#   ziformula = ~1
+# )
+# 
+# # m6 <- glmmTMB(
+# #   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + migration + sociality + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+# #   data = wnv_dt,
+# #   family = binomial(),
+# #   ziformula = ~1
+# # )
+# # Warning messages:
+# # 1: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 2: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 3: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 4: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 5: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 6: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 7: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 8: In (function (start, objective, gradient = NULL, hessian = NULL,  :
+# #   NA/NaN function evaluation
+# # 9: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+# #   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
+# # 10: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+# #   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 
+# # Compare models using AIC
+# AIC(m1, m2, m3, m4, m5, m6)
+# 
+# # Compare models using BIC
+# BIC(m1, m2, m3)
+# 
+# 
+# simres <- simulateResiduals(binbinfit)
+# plot(simres)  # Residual plots, tests for overdispersion, outliers, zero-inflation
+# 
+# 
+# simresz <- simulateResiduals(fit_zi)
+# plot(simresz) 
+# 
+# # For probabilities:
+# pred_probs <- predict(fit_zi, type = "response")  # This gives you predicted probabilities
+# 
+# # For predicted counts (optional, for binomial-type models):
+# pred_counts <- pred_probs * wnv_dt$total_tested
+# 
+# plot(
+#   wnv_dt$positive,   # x: observed counts
+#   pred_counts,          # y: predicted counts
+#   xlab = "Observed Counts",
+#   ylab = "Predicted Counts",
+#   main = "Predicted vs Observed Counts"
+# )
+# abline(0, 1, col = "red")
+
+
