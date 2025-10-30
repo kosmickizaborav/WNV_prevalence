@@ -2,11 +2,11 @@ library(data.table)
 library(ape)
 library(brms)
 
-prepare_data <- T
+prepare_data <- F
 
 # here package should read it automatically from R project so no need to specify
 # the base directory
-#main_dir <- "/home/nbogdanovic/WNV_prevalence"
+# main_dir <- "/home/nbogdanovic/WNV_prevalence"
 # cluster_dir <- file.path(main_dir, "Data_for_cluster")
 # model_dir <- file.path(main_dir, "Models")
 
