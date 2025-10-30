@@ -4,7 +4,6 @@ library(brms)
 
 prepare_data <- F
 
-
 main_dir <- "/home/nbogdanovic/WNV_prevalence"
 cluster_dir <- file.path(main_dir, "Data_for_cluster")
 model_dir <- file.path(main_dir, "Models")
