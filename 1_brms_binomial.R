@@ -203,6 +203,7 @@ if(prepare_data == T){
 # 0: Load data cluster -------------------------------------------------------
 
 A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
+
 Sigma_spatialAF <- readRDS(
   file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
 
@@ -251,7 +252,10 @@ for(dn in names(distributions)){
       withCallingHandlers({
         m <- brm(
           data = wnv_dt,
-          data2 = list(A = A),
+          data2 = list(
+            A = A, 
+            Sigma_spatialAF = Sigma_spatialAF
+          ),
           formula = f,
           iter = 6000,
           warmup = 2000,
