@@ -2,7 +2,7 @@ library(data.table)
 library(ape)
 library(brms)
 
-prepare_data <- F
+prepare_data <- T
 
 # here package should read it automatically from R project so no need to specify
 # the base directory
@@ -129,28 +129,30 @@ if(prepare_data == T){
   A <- vcv.phylo(bird_tree)
   saveRDS(A, file.path(cluster_dir, "1_bird_tree_A.rds"))
   
+  # locational autocorrelation
+  study_locs <- unique(wnv_dt[, .(country, long, lat)])
+  setorder(study_locs, country, long, lat)
+  study_locs[
+    , location_id := paste0(gsub(" ", "_", country), "_", 1:.N), by = country]
+  
+  # study_locs <- sf::st_as_sf(study_locs, coords = c("long", "lat"), crs = 4326)
+  # spatiald <- distm(sf::st_distance(study_locs))/1000 # in km
+  
+  # get distance matrix and convert to kilometers
+  dist_matrix_kmAF <- geosphere::distm(
+    x = study_locs[, c("long", "lat")], fun = geosphere::distHaversine)/1000 # in M
+  # in KM
+  
+  # Rename matrix with location_id
+  rownames(dist_matrix_kmAF) <- study_locs$location_id
+  colnames(dist_matrix_kmAF) <- study_locs$location_id
+  range_paramAF <- 500  # decay scale in km
+  Sigma_spatialAF <- exp(-dist_matrix_kmAF / range_paramAF)
+  
+  saveRDS(
+    Sigma_spatialAF, file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
+  
 }
-
-# TRIED THIS, BUT THE DISTANCES HAVE BIMODAL DISTRIBUION,
-# it seems that this spaial autocorrelation matric is not a good idea here
-# skipped it, for now
-#
-# study_locs <- unique(wnv_dt[, .(country, long, lat)])
-# setorder(study_locs, country, long, lat)
-# study_locs[
-#   , location_id := paste0(gsub(" ", "_", country), "_", 1:.N), by = country]
-# study_locs <- sf::st_as_sf(study_locs, coords = c("long", "lat"), crs = 4326)
-# spatiald <- as.numeric(sf::st_distance(study_locs))/1000 # in km
-# dist_matrix_mAF <- distm(
-#   x = unique_coordsAF[, c("decimalLongitude", "decimalLatitude")],  # lon, lat
-#   fun = distHaversine) # in M
-# # in KM
-# dist_matrix_kmAF <- dist_matrix_mAF / 1000
-# # Rename matrix with location_id
-# rownames(dist_matrix_kmAF) <- unique_coordsAF$location_id
-# colnames(dist_matrix_kmAF) <- unique_coordsAF$location_id
-# range_paramAF <- 500  # decay scale in km
-# Sigma_spatialAF <- exp(-dist_matrix_kmAF / range_paramAF)
 
 
 # add_continents <- function(
@@ -201,10 +203,11 @@ if(prepare_data == T){
 # 0: Load data cluster -------------------------------------------------------
 
 A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
+Sigma_spatialAF <- readRDS(
+  file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
 
 wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
 
-wnv_dt_passer <- wnv_dt[avilist_order == "Passeriformes"]
 
 setwd(model_dir)
 
@@ -220,7 +223,7 @@ setwd(model_dir)
 #              density = TRUE)
 
 
-full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
+full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
 
 
 # get the log warning files
@@ -237,7 +240,7 @@ distributions <- list(
 for(dn in names(distributions)){
 
     # TRY
-    mname <- paste0("1_", dn, "_full_model.rds")
+    mname <- paste0("1_", dn, "_full_model_spatial.rds")
 
     # Fit the model only if not already saved
     if (!file.exists(mname)) {
@@ -260,7 +263,7 @@ for(dn in names(distributions)){
         )
       }, warning = function(w) {
         writeLines(
-          paste0(Sys.time(), " | MODEL: ", mname, " \n ", conditionMessage(w)),
+          paste(Sys.time(), " \n | MODEL:", mname, " \n", conditionMessage(w)),
           logcon
         )
         invokeRestart("muffleWarning")
@@ -298,114 +301,5 @@ close(logcon) # Close log file connection
 # loo_compare(loom)
 # 
 # summary(m)
-
-
-
-
-# # Frequentist -------------------------------------------------------------
-# 
-# full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | country:sampling_year)"
-# 
-# 
-# m1 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + altitude_cat + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year) + (1 | avilist_name),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# 
-# 
-# m2 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# m3 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ tarsus_log + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# m4 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# m5 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + migration + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# m6 <- glmmTMB(
-#   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater +  sociality + nest_placement + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-#   data = wnv_dt,
-#   family = binomial(),
-#   ziformula = ~1
-# )
-# 
-# # m6 <- glmmTMB(
-# #   cbind(positive, total_tested - positive) ~ tarsus_log + freshwater + migration + sociality + (1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
-# #   data = wnv_dt,
-# #   family = binomial(),
-# #   ziformula = ~1
-# # )
-# # Warning messages:
-# # 1: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 2: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 3: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 4: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 5: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 6: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 7: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 8: In (function (start, objective, gradient = NULL, hessian = NULL,  :
-# #   NA/NaN function evaluation
-# # 9: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-# #   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# # 10: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-# #   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
-# 
-# # Compare models using AIC
-# AIC(m1, m2, m3, m4, m5, m6)
-# 
-# # Compare models using BIC
-# BIC(m1, m2, m3)
-# 
-# 
-# simres <- simulateResiduals(binbinfit)
-# plot(simres)  # Residual plots, tests for overdispersion, outliers, zero-inflation
-# 
-# 
-# simresz <- simulateResiduals(fit_zi)
-# plot(simresz) 
-# 
-# # For probabilities:
-# pred_probs <- predict(fit_zi, type = "response")  # This gives you predicted probabilities
-# 
-# # For predicted counts (optional, for binomial-type models):
-# pred_counts <- pred_probs * wnv_dt$total_tested
-# 
-# plot(
-#   wnv_dt$positive,   # x: observed counts
-#   pred_counts,          # y: predicted counts
-#   xlab = "Observed Counts",
-#   ylab = "Predicted Counts",
-#   main = "Predicted vs Observed Counts"
-# )
-# abline(0, 1, col = "red")
 
 
