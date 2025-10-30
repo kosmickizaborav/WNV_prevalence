@@ -2,16 +2,16 @@ library(data.table)
 library(ape)
 library(brms)
 
-prepare_data <- F
+prepare_data <- T
 
 main_dir <- "/home/nbogdanovic/WNV_prevalence"
 cluster_dir <- file.path(main_dir, "Data_for_cluster")
 model_dir <- file.path(main_dir, "Models")
 
-# cluster_dir <- here::here("Data_for_cluster")
-# model_dir <- here::here("Models")
+if(grepl("nbogdanovic", getwd())){
+  dir.create(model_dir, showWarnings = F)
+}
 
-dir.create(model_dir, showWarnings = F)
 
 # Seed stuff
 set.seed(202510)
@@ -112,9 +112,6 @@ if(prepare_data == T){
     sociality = relevel(factor(sociality), ref = "nonSocial")
   )]
   
-  # save data
-  saveRDS(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
-  
   #PHYLOGENETIC AUTOCORRELATION
   bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
   bird_tree <- drop.tip(
@@ -149,6 +146,15 @@ if(prepare_data == T){
   
   saveRDS(
     Sigma_spatialAF, file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
+  
+  
+  wnv_dt <- merge(
+    wnv_dt, study_locs[, .(location_id, country, long, lat)], 
+    by = c("country", "long", "lat")
+  )
+  
+  # save data
+  saveRDS(wnv_dt, file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
   
 }
 
