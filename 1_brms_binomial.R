@@ -4,18 +4,27 @@ library(brms)
 
 prepare_data <- F
 
-main_dir <- "/home/nbogdanovic/WNV_prevalence"
-cluster_dir <- file.path(main_dir, "Data_for_cluster")
-model_dir <- file.path(main_dir, "Models")
+FULL_MODELS <- "RUN"
+MODELS_ONE <- "RUN"
+MODELS_MOLECULAR <- "RUN"
+
+cluster_dir <- here::here("Data_for_cluster")
+model_dir <- here::here("Models")
 
 if(grepl("nbogdanovic", getwd())){
+  
+  main_dir <- "/home/nbogdanovic/WNV_prevalence"
+  cluster_dir <- file.path(main_dir, "Data_for_cluster")
+  model_dir <- file.path(main_dir, "Models")
   dir.create(model_dir, showWarnings = F)
-}
 
+  }
 
 # Seed stuff
 set.seed(202510)
 BAYES_SEED <- 202510
+
+
 
 # 0: Prepare data PC---------------------------------------------------------
 
@@ -129,6 +138,7 @@ if(prepare_data == T){
   setorder(study_locs, country, long, lat)
   study_locs[
     , location_id := paste0(gsub(" ", "_", country), "_", 1:.N), by = country]
+  saveRDS(study_locs, file.path(cluster_dir, "1_study_locations.rds"))
   
   # study_locs <- sf::st_as_sf(study_locs, coords = c("long", "lat"), crs = 4326)
   # spatiald <- distm(sf::st_distance(study_locs))/1000 # in km
@@ -203,18 +213,85 @@ if(prepare_data == T){
 #   wnv_dt, coord_cols = c("long", "lat"), scale = "medium")
 
 
+# 0: Prepare subset data --------------------------------------------------
 
-# 0: Load data cluster -------------------------------------------------------
+if(prepare_data == T){
 
-A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
-
-Sigma_spatialAF <- readRDS(
-  file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
-
-wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
-
-
-setwd(model_dir)
+  # Load data
+  wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
+  bird_tree <- readRDS(file.path(data_dir, "00_bird_tree_match_avilist.rds"))
+  study_locs <- readRDS(file.path(cluster_dir, "1_study_locations.rds"))
+  
+  ### ONE ENTRY PER SPECIES
+  # select one entry per species 
+  setorder(wnv_dt, avilist_name, -total_tested)
+  wnv_dt_one <- wnv_dt[, .SD[1], by = avilist_name][total_tested >= 10]
+  saveRDS(
+    wnv_dt_one, file.path(cluster_dir, "1_WNV_prevalence_data_model_one.rds"))
+  
+  # prepare bird tree
+  bird_tree_one <- drop.tip(
+    bird_tree,
+    bird_tree$tip.label[!bird_tree$tip.label %in% unique(wnv_dt_one$avilist_name)]
+  )
+  A_one <- vcv.phylo(bird_tree_one)
+  saveRDS(A_one, file.path(cluster_dir, "1_bird_tree_A_one.rds"))
+  
+  # get distance matrix and convert to kilometers
+  study_locs_one <- study_locs[location_id %in% unique(wnv_dt_one$location_id)]
+  dist_matrix_kmAF_one <- geosphere::distm(
+    x = study_locs_one[, c("long", "lat")], 
+    fun = geosphere::distHaversine)/1000 # in KM
+  
+  # Rename matrix with location_id
+  rownames(dist_matrix_kmAF_one) <- study_locs_one$location_id
+  colnames(dist_matrix_kmAF_one) <- study_locs_one$location_id
+  range_paramAF <- 500  # decay scale in km
+  Sigma_spatialAF_one <- exp(-dist_matrix_kmAF_one / range_paramAF)
+  
+  saveRDS(
+    Sigma_spatialAF_one, 
+    file.path(cluster_dir, "1_spatial_autocorrelation_one.rds")
+  )
+  rm(wnv_dt_one, dist_matrix_kmAF_one, study_locs_one, 
+     bird_tree_one, A_one, Sigma_spatialAF_one)
+  
+  ### ONLY ONE METHOD
+  wnv_dt_molecular <- wnv_dt[method == "molecular_detection"]
+  saveRDS(
+    wnv_dt_molecular, 
+    file.path(cluster_dir, "1_WNV_prevalence_data_model_molecular.rds")
+  )
+  
+  # prepare bird tree
+  bird_tree_molecular <- drop.tip(
+    bird_tree,
+    bird_tree$tip.label[!bird_tree$tip.label %in% unique(wnv_dt_molecular$avilist_name)]
+  )
+  
+  A_molecular <- vcv.phylo(bird_tree_molecular)
+  saveRDS(A_molecular, file.path(cluster_dir, "1_bird_tree_A_molecular.rds"))
+  
+  # get distance matrix and convert to kilometers
+  study_locs_molecular <- study_locs[location_id %in% unique(wnv_dt_molecular$location_id)]
+  dist_matrix_kmAF_molecular <- geosphere::distm(
+    x = study_locs_molecular[, c("long", "lat")], 
+    fun = geosphere::distHaversine)/1000 # in KM
+  
+  # Rename matrix with location_id
+  rownames(dist_matrix_kmAF_molecular) <- study_locs_molecular$location_id
+  colnames(dist_matrix_kmAF_molecular) <- study_locs_molecular$location_id
+  range_paramAF <- 500  # decay scale in km
+  Sigma_spatialAF_molecular <- exp(-dist_matrix_kmAF_molecular / range_paramAF)
+  
+  saveRDS(
+    Sigma_spatialAF_molecular, 
+    file.path(cluster_dir, "1_spatial_autocorrelation_molecular.rds")
+  )
+  rm(wnv_dt_molecular, dist_matrix_kmAF_molecular, study_locs_molecular,
+     bird_tree_molecular, A_molecular, Sigma_spatialAF_molecular)
+    
+}
 
 
 # 1: check distributions -----------------------------------------------------
@@ -227,26 +304,36 @@ setwd(model_dir)
 #              hist.col = "#00AFBB",
 #              density = TRUE)
 
-
-full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
-
-
-# get the log warning files
-logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
-logcon <- file(logfile, open = "at")
-
-distributions <- list(
-  binom = binomial(), 
-  beta_binom = beta_binomial(), 
-  zero_binom = zero_inflated_binomial(), 
-  zero_beta_binom = zero_inflated_beta_binomial()
-)
-
-for(dn in names(distributions)){
-
+if(FULL_MODELS == "RUN"){
+  
+  
+  A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
+  Sigma_spatialAF <- readRDS(
+    file.path(cluster_dir, "1_spatial_autocorrelation.rds"))
+  wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
+  wnv_dt[, avilist_species := avilist_name]
+  setwd(model_dir)
+  
+  
+  full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | avilist_species) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
+  
+  
+  # get the log warning files
+  logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
+  logcon <- file(logfile, open = "at")
+  
+  distributions <- list(
+    binom = binomial(), 
+    beta_binom = beta_binomial(), 
+    zero_binom = zero_inflated_binomial(), 
+    zero_beta_binom = zero_inflated_beta_binomial()
+  )
+  
+  for(dn in names(distributions)){
+    
     # TRY
-    mname <- paste0("1_", dn, "_full_model_spatial.rds")
-
+    mname <- paste0("1_", dn, "_full_model_spatial_random_sp.rds")
+    
     # Fit the model only if not already saved
     if (!file.exists(mname)) {
       
@@ -277,15 +364,168 @@ for(dn in names(distributions)){
         invokeRestart("muffleWarning")
       })
     }
-
+    
     writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
-
+    
   }
+  
+  
+  close(logcon) # Close log file connection
+  
+  rm(wnv_dt, A, Sigma_spatialAF)
+  
+  
+}
 
 
-close(logcon) # Close log file connection
 
   
+# 1: check distributions one ----------------------------------------------
+
+if(MODELS_ONE == "RUN"){
+  
+  full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
+
+  
+  A <- readRDS(file.path(cluster_dir, "1_bird_tree_A_one.rds"))
+  Sigma_spatialAF <- readRDS(
+    file.path(cluster_dir, "1_spatial_autocorrelation_one.rds"))
+  wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model_one.rds"))
+  setwd(model_dir)
+  
+  
+  # get the log warning files
+  logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
+  logcon <- file(logfile, open = "at")
+  
+  distributions <- list(
+    binom = binomial(), 
+    beta_binom = beta_binomial(), 
+    zero_binom = zero_inflated_binomial(), 
+    zero_beta_binom = zero_inflated_beta_binomial()
+  )
+  
+  for(dn in names(distributions)){
+    
+    # TRY
+    mname <- paste0("1_", dn, "_full_model_spatial_one.rds")
+    
+    # Fit the model only if not already saved
+    if (!file.exists(mname)) {
+      
+      # convert to brms formula object
+      f <- bf(formula(full_f), family = distributions[[dn]])
+      
+      withCallingHandlers({
+        m <- brm(
+          data = wnv_dt,
+          data2 = list(
+            A = A, 
+            Sigma_spatialAF = Sigma_spatialAF
+          ),
+          formula = f,
+          iter = 6000,
+          warmup = 2000,
+          cores = 4,
+          chains = 4,
+          seed = BAYES_SEED,
+          sample_prior = TRUE,
+          file = mname
+        )
+      }, warning = function(w) {
+        writeLines(
+          paste(Sys.time(), " \n | MODEL:", mname, " \n", conditionMessage(w)),
+          logcon
+        )
+        invokeRestart("muffleWarning")
+      })
+    }
+    
+    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+    
+  }
+  
+  
+  close(logcon) # Close log file connection
+  
+  rm(wnv_dt, A, Sigma_spatialAF)
+}
+
+
+# 1: check distributions one ----------------------------------------------
+
+if(MODELS_MOLECULAR == "RUN"){
+  
+  full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
+  
+  
+  A <- readRDS(file.path(cluster_dir, "1_bird_tree_A_molecular.rds"))
+  Sigma_spatialAF <- readRDS(
+    file.path(cluster_dir, "1_spatial_autocorrelation_molecular.rds"))
+  wnv_dt <- readRDS(
+    file.path(cluster_dir, "1_WNV_prevalence_data_model_molecular.rds"))
+  setwd(model_dir)
+  
+  
+  # get the log warning files
+  logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
+  logcon <- file(logfile, open = "at")
+  
+  distributions <- list(
+    binom = binomial(), 
+    beta_binom = beta_binomial(), 
+    zero_binom = zero_inflated_binomial(), 
+    zero_beta_binom = zero_inflated_beta_binomial()
+  )
+  
+  for(dn in names(distributions)){
+    
+    # TRY
+    mname <- paste0("1_", dn, "_full_model_spatial_molecular.rds")
+    
+    # Fit the model only if not already saved
+    if (!file.exists(mname)) {
+      
+      # convert to brms formula object
+      f <- bf(formula(full_f), family = distributions[[dn]])
+      
+      withCallingHandlers({
+        m <- brm(
+          data = wnv_dt,
+          data2 = list(
+            A = A, 
+            Sigma_spatialAF = Sigma_spatialAF
+          ),
+          formula = f,
+          iter = 6000,
+          warmup = 2000,
+          cores = 4,
+          chains = 4,
+          seed = BAYES_SEED,
+          sample_prior = TRUE,
+          file = mname
+        )
+      }, warning = function(w) {
+        writeLines(
+          paste(Sys.time(), " \n | MODEL:", mname, " \n", conditionMessage(w)),
+          logcon
+        )
+        invokeRestart("muffleWarning")
+      })
+    }
+    
+    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+    
+  }
+  
+  
+  close(logcon) # Close log file connection
+  
+  rm(wnv_dt, A, Sigma_spatialAF)
+  
+}
+
+
 
 
 # check models ------------------------------------------------------------
@@ -298,16 +538,16 @@ close(logcon) # Close log file connection
 # 
 # 
 # summarym <- lapply(all_models, summary)
-# 
-# # Warning messages:
-# #   1: There were 7 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
-# # 2: There were 13 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
-# # 3: There were 6 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
-# 
-# loom <- lapply(all_models[c(2, 3, 4)], loo)
+# # 
+# # # Warning messages:
+# # #   1: There were 7 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# # # 2: There were 13 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# # # 3: There were 6 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+# # 
+# loom <- lapply(all_models[3:6], loo)
 # 
 # loo_compare(loom)
 # 
 # summary(m)
-
-
+# 
+# 

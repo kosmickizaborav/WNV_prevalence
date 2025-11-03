@@ -16,35 +16,74 @@ dir.create(model_dir, showWarnings = F)
 
 # 0: Load data cluster -------------------------------------------------------
 
-A <- readRDS(file.path(cluster_dir, "1_bird_tree_A.rds"))
-
 wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model.rds"))
 
+wnv_dt[, avilist_genus := sub(" .*", "", avilist_name)]
+wnv_dt <- wnv_dt[, negative := total_tested - positive]
+
 setwd(model_dir)
+
+
+add_continents <- function(
+    steps, crs = sf::st_crs(4326), align_start = T,
+    coord_cols = NULL, scale = "medium"){
+
+  # overlay the map with start or the end point of the step (didn't check both
+  # to preserve the country information in case we need it later)
+  if(is.null(coord_cols)){
+    coord_cols <- if(align_start) c("x1_", "y1_") else c("x2_", "y2_")
+  }
+
+  steps <- steps[
+    , geometry := sf::st_as_sf(
+      .SD, coords = coord_cols, crs = crs), .SDcols = coord_cols]
+
+  # load or download the continent data with the right resolution
+  conti <- tryCatch(
+    rnaturalearth::ne_load(
+      type = "geography_regions_polys",  scale = scale, category = "physical"),
+    error = function(e) {
+      rnaturalearth::ne_download(
+        type = "geography_regions_polys",  scale = scale, category = "physical")
+    }
+  )
+
+  # check the nearest geometry
+  conti_id <- sf::st_nearest_feature(steps$geometry, conti)
+
+  # convert to datatable for merging
+  conti_dt <- as.data.table(conti)[
+    , .(continent = REGION, subregion = SUBREGION)]
+  conti_dt <- conti_dt[conti_id]
+
+  # add columns to the original step data
+  steps <- cbind(steps[, geometry := NULL], conti_dt)
+
+  return(steps)
+
+}
+
+
+wnv_dt <- add_continents(
+  wnv_dt, coord_cols = c("long", "lat"), scale = "medium")
 
 
 
 # Frequentist -------------------------------------------------------------
 
 fixed_eff <- c(
-  "", "tarsus_log", "freshwater", "migration", "sociality", 
-  "nest_placement",  "clutch_max_log",  "longevity_log", "trophic_niche",  
-  "abundance_log", "log_human_population_density", "altitude_cat",  "primary_lifestyle"
+  "1", "tarsus_log", "freshwater", "primary_lifestyle", 
+   "trophic_niche", "migration", "sociality", "clutch_max_log", "nest_placement", 
+  "longevity_log", "abundance_log", "log_human_population_density"
   )
 
-
-wnv_dt <- wnv_dt[, negative := total_tested - positive]
-
-base_f <- "cbind(positive, negative) ~ 1 + %s(1 | avilist_family) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year)" 
+base_f <- "cbind(positive, negative) ~ %s (1 | avilist_order/avilist_family/avilist_name) + (1 | method_cat) + (1 | continent/country) + (1 | sampling_year)" 
 
 for(i in seq_along(fixed_eff)){
   
-  fe <- fixed_eff[i]
-  if(i > 1){
-    all_fe <- paste(fixed_eff[2:i], collapse = " + ")
-  }
+  all_fe <- paste(fixed_eff[1:i], collapse = " + ")
   
-  formulaf <- sprintf(base_f, ifelse(fe == "", "", paste(all_fe, "+")))
+  formulaf <- sprintf(base_f, paste(all_fe, "+"))
   
   mod <- glmmTMB(
     as.formula(formulaf),
@@ -53,8 +92,7 @@ for(i in seq_along(fixed_eff)){
     ziformula = ~1
   )
   
-  mname <- paste0(
-    "2_2_", ifelse(i==1, "intercept", paste(fixed_eff[2:i], collapse = "_")), ".rds")
+  mname <- paste0("2_", i, paste(fixed_eff[1:i], collapse = "_"), ".rds")
   
   saveRDS(mod, file.path(model_dir, mname))
   
@@ -76,40 +114,40 @@ for(i in seq_along(fixed_eff)){
 #   NA/NaN function evaluation
 # 6: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 7: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
-# 8: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
+# 7: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
+# 8: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
 # 9: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 10: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 11: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 12: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# 13: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 12: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
+# 13: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
 # 14: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 15: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 16: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 17: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
-# 18: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
+# 17: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
+# 18: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
 # 19: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 20: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 21: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 22: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# 23: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 22: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
+# 23: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
 # 24: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 25: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
@@ -118,36 +156,36 @@ for(i in seq_along(fixed_eff)){
 #   NA/NaN function evaluation
 # 27: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 28: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
-# 29: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
+# 28: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
+# 29: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
 # 30: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 31: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 32: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# 33: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 32: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
+# 33: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
 # 34: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 35: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
-# 36: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+# 35: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
 #   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# 37: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+# 36: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
 #   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 37: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
 # 38: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 39: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 40: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 41: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
-# 42: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
-#   NA/NaN function evaluation
+# 41: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
+# 42: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
+#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
 # 43: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 # 44: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
@@ -158,17 +196,30 @@ for(i in seq_along(fixed_eff)){
 #   NA/NaN function evaluation
 # 47: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
-# 48: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; non-positive-definite Hessian matrix. See vignette('troubleshooting')
-# 49: In finalizeTMB(TMBStruc, obj, fit, h, data.tmb.old) :
-#   Model convergence problem; false convergence (8). See vignette('troubleshooting'), help('diagnose')
+# 48: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
+# 49: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
+#   NA/NaN function evaluation
 # 50: In (function (start, objective, gradient = NULL, hessian = NULL,  ... :
 #   NA/NaN function evaluation
 
 
+
+# Full formula ------------------------------------------------------------
+
+full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
+
+m1 <- glmmTMB(
+  cbind(positive, total_tested-positive) ~ tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | avilist_name) + (1 | avilist_order) + (1 | method_cat) + (1 | country:sampling_year),
+  data = wnv_dt,
+  family = binomial(),
+  ziformula = ~1
+)
+
+
 # check models ------------------------------------------------------------
 
-files <- list.files(model_dir, "^2_2_tarsus_", full.names = T)
+files <- list.files(model_dir, full.names = T)
 
 all_models <- lapply(files, readRDS)
 
@@ -186,7 +237,7 @@ m11 <- all_models[[11]]
 m12 <- all_models[[12]]
 
 anova(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, test = "Chisq")
-AIC(unlist(all_models))
+AIC(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12)
 # Compare models using AIC
 AIC(m1, m2, m3, m4, m5, m6)
 
