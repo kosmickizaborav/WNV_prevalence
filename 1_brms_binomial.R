@@ -2,11 +2,12 @@ library(data.table)
 library(ape)
 library(brms)
 
-prepare_data <- F
+prepare_data <- T
 
-FULL_MODELS <- "RUN"
-MODELS_ONE <- "RUN"
-MODELS_MOLECULAR <- "RUN"
+FULL_MODELS <- "DONE"
+FULL_MODELS_SAMPLE <- "RUN"
+MODELS_ONE <- "DONE"
+MODELS_MOLECULAR <- "DONE"
 
 cluster_dir <- here::here("Data_for_cluster")
 model_dir <- here::here("Models")
@@ -290,11 +291,42 @@ if(prepare_data == T){
   )
   rm(wnv_dt_molecular, dist_matrix_kmAF_molecular, study_locs_molecular,
      bird_tree_molecular, A_molecular, Sigma_spatialAF_molecular)
-    
+  
+  ### SAMPLE SIZE PER STUDY
+  wnv_dt_sample <- wnv_dt[total_tested >= 10]
+  saveRDS(
+    wnv_dt_sample, file.path(cluster_dir, "1_WNV_prevalence_data_model_sample.rds"))
+  
+  # prepare bird tree
+  bird_tree_sample <- drop.tip(
+    bird_tree,
+    bird_tree$tip.label[!bird_tree$tip.label %in% unique(wnv_dt_sample$avilist_name)]
+  )
+  A_sample <- vcv.phylo(bird_tree_sample)
+  saveRDS(A_sample, file.path(cluster_dir, "1_bird_tree_A_sample.rds"))
+  
+  # get distance matrix and convert to kilometers
+  study_locs_sample <- study_locs[location_id %in% unique(wnv_dt_sample$location_id)]
+  dist_matrix_kmAF_sample <- geosphere::distm(
+    x = study_locs_sample[, c("long", "lat")], 
+    fun = geosphere::distHaversine)/1000 # in KM
+  
+  # Rename matrix with location_id
+  rownames(dist_matrix_kmAF_sample) <- study_locs_sample$location_id
+  colnames(dist_matrix_kmAF_sample) <- study_locs_sample$location_id
+  range_paramAF <- 500  # decay scale in km
+  Sigma_spatialAF_sample <- exp(-dist_matrix_kmAF_sample / range_paramAF)
+  
+  saveRDS(
+    Sigma_spatialAF_sample, 
+    file.path(cluster_dir, "1_spatial_autocorrelation_sample.rds")
+  )
+  rm(wnv_dt_sample, dist_matrix_kmAF_sample, study_locs_sample, 
+     bird_tree_sample, A_sample, Sigma_spatialAF_sample)
 }
 
 
-# 1: check distributions -----------------------------------------------------
+# 1: FULL_MODELS ---------------------------------------------------------------
 
 # checking which variables are correlated
 # log_var <- grep("^log_|_log$", names(wnv_dt), value = T)
@@ -378,9 +410,87 @@ if(FULL_MODELS == "RUN"){
 }
 
 
+# 1: FULL_MODELS_SAMPLE -----------------------------------------------------
+
+if(FULL_MODELS_SAMPLE == "RUN"){
+  
+  
+  A <- readRDS(file.path(cluster_dir, "1_bird_tree_A_sample.rds"))
+  Sigma_spatialAF <- readRDS(
+    file.path(cluster_dir, "1_spatial_autocorrelation_sample.rds"))
+  wnv_dt <- readRDS(file.path(cluster_dir, "1_WNV_prevalence_data_model_sample.rds"))
+  wnv_dt[, avilist_species := avilist_name]
+  setwd(model_dir)
+  
+  
+  full_f <- "positive | trials(total_tested) ~ 1 + tarsus_log + longevity_log + clutch_max_log + log_human_population_density + abundance_log + freshwater + migration + sociality + primary_lifestyle + nest_placement + trophic_niche + (1 | gr(avilist_name,cov=A)) + (1 | avilist_species) + (1 | method_cat) + (1 | gr(location_id, cov = Sigma_spatialAF)) + (1 | sampling_year)"
+  
+  
+  # get the log warning files
+  logfile <- file.path(model_dir, "1_check_distributions_warnings.log")
+  logcon <- file(logfile, open = "at")
+  
+  distributions <- list(
+    binom = binomial(), 
+    beta_binom = beta_binomial(), 
+    zero_binom = zero_inflated_binomial(), 
+    zero_beta_binom = zero_inflated_beta_binomial()
+  )
+  
+  for(dn in names(distributions)){
+    
+    # TRY
+    mname <- paste0("1_", dn, "_full_model_spatial_random_sp_sample.rds")
+    
+    # Fit the model only if not already saved
+    if (!file.exists(mname)) {
+      
+      # convert to brms formula object
+      f <- bf(formula(full_f), family = distributions[[dn]])
+      
+      withCallingHandlers({
+        m <- brm(
+          data = wnv_dt,
+          data2 = list(
+            A = A, 
+            Sigma_spatialAF = Sigma_spatialAF
+          ),
+          formula = f,
+          iter = 6000,
+          warmup = 2000,
+          cores = 4,
+          chains = 4,
+          seed = BAYES_SEED,
+          sample_prior = TRUE,
+          file = mname
+        )
+      }, warning = function(w) {
+        writeLines(
+          paste(Sys.time(), " \n | MODEL:", mname, " \n", conditionMessage(w)),
+          logcon
+        )
+        invokeRestart("muffleWarning")
+      })
+    }
+    
+    writeLines(c(" ", "MODEL:", mname, "DONE!", " "))
+    
+  }
+  
+  
+  close(logcon) # Close log file connection
+  
+  rm(wnv_dt, A, Sigma_spatialAF)
+  
+  
+}
+
+
+
+
 
   
-# 1: check distributions one ----------------------------------------------
+# 1: MODELS_ONE ----------------------------------------------------------------
 
 if(MODELS_ONE == "RUN"){
   
@@ -452,7 +562,7 @@ if(MODELS_ONE == "RUN"){
 }
 
 
-# 1: check distributions one ----------------------------------------------
+# 1: MODELS_MOLECULAR ----------------------------------------------------------
 
 if(MODELS_MOLECULAR == "RUN"){
   
@@ -530,14 +640,21 @@ if(MODELS_MOLECULAR == "RUN"){
 
 # check models ------------------------------------------------------------
 
-# models_dir <- here::here("Models")
-# 
-# 
-# mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
-# all_models <- lapply(mnames, readRDS)
-# 
-# 
-# summarym <- lapply(all_models, summary)
+models_dir <- here::here("Models")
+
+
+mnames <- list.files(models_dir, pattern = ".rds", full.names = T)
+
+mone <- list.files(models_dir, pattern = "_one.rds", full.names = T)
+one_models <- lapply(mone, readRDS)
+names(one_models) <- basename(mone)
+loo_one <- lapply(one_models[!grepl("1_beta_binom_full_", mone)], loo)
+loo_compare(loo_one)
+
+
+summary_one <- lapply(one_models, summary)
+
+
 # # 
 # # # Warning messages:
 # # #   1: There were 7 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
