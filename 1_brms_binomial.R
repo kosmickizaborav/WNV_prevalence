@@ -2,7 +2,7 @@ library(data.table)
 library(ape)
 library(brms)
 
-prepare_data <- T
+prepare_data <- F
 
 FULL_MODELS <- "DONE"
 FULL_MODELS_SAMPLE <- "RUN"
